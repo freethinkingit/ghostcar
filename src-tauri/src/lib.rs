@@ -1,6 +1,7 @@
 use serde::Serialize;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State};
 use walkdir::WalkDir;
@@ -20,7 +21,8 @@ struct ProgressEvent {
     current: usize,
     total: usize,
     file: String,
-    status: String, // "encoding", "done", "failed", "validating", "invalid"
+    status: String,
+    percent: u8, // 0-100 per-file encoding progress
 }
 
 fn is_video(path: &Path) -> bool {
@@ -55,13 +57,51 @@ fn ffprobe_path(state: &AppState) -> PathBuf {
     state.ffprobe_path.lock().unwrap().clone().unwrap_or_else(|| PathBuf::from("ffprobe"))
 }
 
-fn encode_file(source: &Path, dest: &Path, state: &AppState) -> Result<(), String> {
+/// Get duration in seconds via ffprobe
+fn get_duration(path: &Path, state: &AppState) -> Option<f64> {
+    let output = Command::new(ffprobe_path(state))
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&output.stdout);
+    s.trim().parse::<f64>().ok()
+}
+
+/// Parse "time=HH:MM:SS.xx" from ffmpeg stderr line into seconds
+fn parse_time(line: &str) -> Option<f64> {
+    let time_start = line.find("time=")?;
+    let after = &line[time_start + 5..];
+    let end = after.find(|c: char| c == ' ' || c == '\r' || c == '\n').unwrap_or(after.len());
+    let ts = &after[..end];
+    let parts: Vec<&str> = ts.split(':').collect();
+    if parts.len() == 3 {
+        let h = parts[0].parse::<f64>().ok()?;
+        let m = parts[1].parse::<f64>().ok()?;
+        let s = parts[2].parse::<f64>().ok()?;
+        Some(h * 3600.0 + m * 60.0 + s)
+    } else {
+        None
+    }
+}
+
+fn encode_file(
+    source: &Path,
+    dest: &Path,
+    state: &AppState,
+    duration: Option<f64>,
+    app: &tauri::AppHandle,
+    current: usize,
+    total: usize,
+    rel: &str,
+) -> Result<(), String> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let output = Command::new(ffmpeg_path(state))
+
+    let mut child = Command::new(ffmpeg_path(state))
         .args([
-            "-hide_banner", "-loglevel", "warning", "-y",
+            "-hide_banner", "-progress", "pipe:2", "-y",
             "-hwaccel", "videotoolbox",
             "-i", &source.to_string_lossy(),
             "-vf", "scale=720:-2",
@@ -69,24 +109,42 @@ fn encode_file(source: &Path, dest: &Path, state: &AppState) -> Result<(), Strin
             "-c:a", "copy",
             &dest.to_string_lossy(),
         ])
-        .output()
+        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
         .map_err(|e| e.to_string())?;
-    if output.status.success() {
+
+    if let Some(stderr) = child.stderr.take() {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            if let Some(elapsed) = parse_time(&line) {
+                let pct = duration
+                    .map(|d| ((elapsed / d) * 100.0).min(99.0) as u8)
+                    .unwrap_or(0);
+                let _ = app.emit("progress", ProgressEvent {
+                    current, total, file: rel.to_string(), status: "encoding".into(), percent: pct,
+                });
+            }
+        }
+    }
+
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if status.success() {
         Ok(())
     } else {
         let _ = std::fs::remove_file(dest);
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
+        Err("ffmpeg exited with error".into())
     }
 }
 
 fn validate_file(path: &Path, state: &AppState) -> bool {
     Command::new(ffprobe_path(state))
-        .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "csv=p=0",
-            &path.to_string_lossy(),
-        ])
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
+        .arg(path)
         .output()
         .map(|o| o.status.success() && !o.stdout.is_empty())
         .unwrap_or(false)
@@ -126,39 +184,39 @@ async fn start(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<Stri
         let dest_path = proxy_path(&source, &dest, file);
         let rel = file.strip_prefix(&source).unwrap().to_string_lossy().to_string();
 
-        // Skip if proxy exists and is valid
         if dest_path.exists() && validate_file(&dest_path, &state) {
             skipped += 1;
             let _ = app.emit("progress", ProgressEvent {
-                current: i + 1, total, file: rel, status: "done".into(),
+                current: i + 1, total, file: rel, status: "done".into(), percent: 100,
             });
             continue;
         }
 
+        let duration = get_duration(file, &state);
+
         let _ = app.emit("progress", ProgressEvent {
-            current: i + 1, total, file: rel.clone(), status: "encoding".into(),
+            current: i + 1, total, file: rel.clone(), status: "encoding".into(), percent: 0,
         });
 
-        match encode_file(file, &dest_path, &state) {
+        match encode_file(file, &dest_path, &state, duration, &app, i + 1, total, &rel) {
             Ok(()) => {
-                // Validate after encode
                 if validate_file(&dest_path, &state) {
                     done += 1;
                     let _ = app.emit("progress", ProgressEvent {
-                        current: i + 1, total, file: rel, status: "done".into(),
+                        current: i + 1, total, file: rel, status: "done".into(), percent: 100,
                     });
                 } else {
                     let _ = std::fs::remove_file(&dest_path);
                     failed += 1;
                     let _ = app.emit("progress", ProgressEvent {
-                        current: i + 1, total, file: rel, status: "invalid".into(),
+                        current: i + 1, total, file: rel, status: "invalid".into(), percent: 0,
                     });
                 }
             }
-            Err(_e) => {
+            Err(_) => {
                 failed += 1;
                 let _ = app.emit("progress", ProgressEvent {
-                    current: i + 1, total, file: rel, status: "failed".into(),
+                    current: i + 1, total, file: rel, status: "failed".into(), percent: 0,
                 });
             }
         }

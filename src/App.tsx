@@ -9,6 +9,7 @@ interface ProgressEvent {
   total: number;
   file: string;
   status: string;
+  percent: number;
 }
 
 function App() {
@@ -59,7 +60,7 @@ function App() {
     setRunning(false);
   };
 
-  const pct = progress ? Math.round((progress.current / progress.total) * 100) : 0;
+  const pct = progress ? progress.percent : 0;
 
   return (
     <div className="app">
@@ -96,8 +97,8 @@ function App() {
             <div className="progress-fill" style={{ width: `${pct}%` }} />
           </div>
           <p className="progress-text">
-            {progress.current}/{progress.total} — {progress.file}
-            <span className={`status ${progress.status}`}> {progress.status}</span>
+            [{progress.current}/{progress.total}] {progress.file}
+            <span className={`status ${progress.status}`}> {progress.status} {pct}%</span>
           </p>
         </section>
       )}
