@@ -1,28 +1,18 @@
 #!/bin/bash
 set -e
 
+# For local dev: builds ffmpeg from source (arm64) or uses cached binaries
+# In CI, build-ffmpeg.sh is used directly with GitHub Actions cache
+
 BINARIES_DIR="src-tauri/binaries"
 TARGET="aarch64-apple-darwin"
 
-mkdir -p "$BINARIES_DIR"
+if [ -x "$BINARIES_DIR/ffmpeg-$TARGET" ] && [ -x "$BINARIES_DIR/ffprobe-$TARGET" ]; then
+  echo "ffmpeg binaries already present, skipping."
+  file "$BINARIES_DIR/ffmpeg-$TARGET"
+  exit 0
+fi
 
-echo "Downloading ffmpeg..."
-curl -L "https://evermeet.cx/ffmpeg/ffmpeg-7.1.1.zip" -o /tmp/ffmpeg.zip
-unzip -o /tmp/ffmpeg.zip -d /tmp
-mv /tmp/ffmpeg "$BINARIES_DIR/ffmpeg-$TARGET"
-chmod +x "$BINARIES_DIR/ffmpeg-$TARGET"
-
-echo "Downloading ffprobe..."
-curl -L "https://evermeet.cx/ffmpeg/ffprobe-7.1.1.zip" -o /tmp/ffprobe.zip
-unzip -o /tmp/ffprobe.zip -d /tmp
-mv /tmp/ffprobe "$BINARIES_DIR/ffprobe-$TARGET"
-chmod +x "$BINARIES_DIR/ffprobe-$TARGET"
-
-rm -f /tmp/ffmpeg.zip /tmp/ffprobe.zip
-
-# Create plain-name symlinks so ffmpeg/ffprobe are on PATH when BINARIES_DIR is added
-ln -sf "ffmpeg-$TARGET" "$BINARIES_DIR/ffmpeg"
-ln -sf "ffprobe-$TARGET" "$BINARIES_DIR/ffprobe"
-
-echo "Done: $BINARIES_DIR"
-ls -lh "$BINARIES_DIR"
+echo "Building ffmpeg from source (arm64)..."
+echo "This takes ~5 minutes the first time."
+./scripts/build-ffmpeg.sh
