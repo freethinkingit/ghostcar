@@ -12,10 +12,18 @@ interface ProgressEvent {
   percent: number;
 }
 
+interface StatusCounts {
+  total: number;
+  done: number;
+  failed: number;
+  pending: number;
+  invalid: number;
+}
+
 function App() {
   const [source, setSource] = useState("");
   const [dest, setDest] = useState("");
-  const [fileCount, setFileCount] = useState<number | null>(null);
+  const [counts, setCounts] = useState<StatusCounts | null>(null);
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<ProgressEvent | null>(null);
   const [log, setLog] = useState<ProgressEvent[]>([]);
@@ -34,8 +42,8 @@ function App() {
     if (dir) {
       setSource(dir as string);
       await invoke("set_source", { dir });
-      const count = await invoke<number>("scan", {});
-      setFileCount(count);
+      const c = await invoke<StatusCounts>("scan", {});
+      setCounts(c);
     }
   };
 
@@ -54,10 +62,32 @@ function App() {
     try {
       const res = await invoke<string>("start", {});
       setResult(res);
-    } catch (e) {
-      setResult(`Error: ${e}`);
-    }
+      const c = await invoke<StatusCounts>("scan", {});
+      setCounts(c);
+    } catch (e) { setResult(`Error: ${e}`); }
     setRunning(false);
+  };
+
+  const runValidate = async () => {
+    setRunning(true);
+    setLog([]);
+    setResult("");
+    try {
+      const res = await invoke<string>("validate", {});
+      setResult(res);
+      const c = await invoke<StatusCounts>("scan", {});
+      setCounts(c);
+    } catch (e) { setResult(`Error: ${e}`); }
+    setRunning(false);
+  };
+
+  const runRetry = async () => {
+    try {
+      const res = await invoke<string>("retry", {});
+      setResult(res);
+      const c = await invoke<StatusCounts>("scan", {});
+      setCounts(c);
+    } catch (e) { setResult(`Error: ${e}`); }
   };
 
   const pct = progress ? progress.percent : 0;
@@ -73,7 +103,6 @@ function App() {
         <div className="folder-row">
           <button onClick={pickSource}>Source Folder</button>
           <span className="path">{source || "No folder selected"}</span>
-          {fileCount !== null && <span className="badge">{fileCount} files</span>}
         </div>
         <div className="folder-row">
           <button onClick={pickDest}>Destination Folder</button>
@@ -81,13 +110,23 @@ function App() {
         </div>
       </section>
 
+      {counts && (
+        <section className="status-counts">
+          <span className="badge">{counts.total} total</span>
+          <span className="badge done">{counts.done} done</span>
+          <span className="badge pending">{counts.pending} pending</span>
+          {counts.failed > 0 && <span className="badge failed">{counts.failed} failed</span>}
+          {counts.invalid > 0 && <span className="badge invalid">{counts.invalid} invalid</span>}
+        </section>
+      )}
+
       <section className="controls">
-        <button
-          className="start-btn"
-          onClick={startEncode}
-          disabled={!source || !dest || running}
-        >
-          {running ? "Encoding..." : "Start"}
+        <button className="start-btn" onClick={startEncode} disabled={!source || !dest || running}>
+          {running ? "Working..." : "Start"}
+        </button>
+        <button onClick={runValidate} disabled={!source || !dest || running}>Validate</button>
+        <button onClick={runRetry} disabled={!source || running || (!counts?.failed && !counts?.invalid)}>
+          Retry
         </button>
       </section>
 
