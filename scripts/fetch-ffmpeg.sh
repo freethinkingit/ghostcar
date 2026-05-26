@@ -20,5 +20,9 @@ chmod +x "$BINARIES_DIR/ffprobe-$TARGET"
 
 rm -f /tmp/ffmpeg.zip /tmp/ffprobe.zip
 
+# Create plain-name symlinks so ffmpeg/ffprobe are on PATH when BINARIES_DIR is added
+ln -sf "ffmpeg-$TARGET" "$BINARIES_DIR/ffmpeg"
+ln -sf "ffprobe-$TARGET" "$BINARIES_DIR/ffprobe"
+
 echo "Done: $BINARIES_DIR"
 ls -lh "$BINARIES_DIR"

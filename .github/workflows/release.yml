@@ -23,7 +23,9 @@ jobs:
         run: npm install
 
       - name: Fetch ffmpeg binaries
-        run: ./scripts/fetch-ffmpeg.sh
+        run: |
+          ./scripts/fetch-ffmpeg.sh
+          echo "${{ github.workspace }}/src-tauri/binaries" >> $GITHUB_PATH
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
