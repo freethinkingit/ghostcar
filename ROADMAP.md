@@ -1,7 +1,7 @@
 # GhostCar Roadmap
 
 Lightweight proxy video generator for DaVinci Resolve.
-Built by [Freethinking IT](https://freethinkingit.com) • Distributed via [86 Pieces](https://86pieces.com)
+Built by [Freethinking IT](https://github.com/freethinkingit) • Distributed via [86 Pieces](https://86pieces.com/ghostcar)
 
 ---
 

@@ -18,7 +18,7 @@ You point it at a folder, pick where the proxies should go, and hit Start. It en
 
 ## Get it
 
-Download from [86pieces.com](https://86pieces.com) — macOS, Apple Silicon.
+Download from [86pieces.com/ghostcar](https://86pieces.com/ghostcar) — macOS, Apple Silicon.
 
 No terminal. No dependencies. Just drag to Applications and go.
 
@@ -39,4 +39,4 @@ GPL-3.0 — Free to use and modify. Forks must stay open source. See [LICENSE](.
 
 ---
 
-A [Freethinking IT](https://freethinkingit.com) project.
+A [Freethinking IT](https://github.com/freethinkingit) project.
