@@ -7,3 +7,5 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <App />
   </React.StrictMode>,
 );
+
+document.getElementById("splash")?.classList.remove("visible");
